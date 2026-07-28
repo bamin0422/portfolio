@@ -565,8 +565,27 @@ function buildTabContent(tab, data) {
     bar.appendChild(b);
   }
 
-  // 주소창(편집 가능) — 로그/정보 서브탭 옆에 표시. web 탭만.
+  // 뒤로/앞으로 + 주소창(편집 가능) — 로그/정보 서브탭 옆에 표시. web 탭만.
   if (tab.hasPreview) {
+    const back = el('button', 'btn btn-small nav-btn');
+    back.textContent = '‹';
+    back.title = '뒤로';
+    back.onclick = () => {
+      ensureWebview(tab);
+      if (tab.webview.canGoBack()) tab.webview.goBack();
+    };
+    const fwd = el('button', 'btn btn-small nav-btn');
+    fwd.textContent = '›';
+    fwd.title = '앞으로';
+    fwd.onclick = () => {
+      ensureWebview(tab);
+      if (tab.webview.canGoForward()) tab.webview.goForward();
+    };
+    tab._backBtn = back;
+    tab._fwdBtn = fwd;
+    bar.appendChild(back);
+    bar.appendChild(fwd);
+
     const addr = el('input', 'addr-input');
     addr.value = `http://localhost:${tab.ref}/`;
     addr.spellcheck = false;
@@ -703,9 +722,11 @@ function ensureWebview(tab) {
   wv.setAttribute('src', startUrl);
   tab._webviewSlot.appendChild(wv);
   tab.webview = wv;
-  // 웹뷰가 이동하면 주소창을 동기화
+  // 웹뷰가 이동하면 주소창 동기화 + 뒤로/앞으로 버튼 활성 상태 갱신
   const sync = (e) => {
     if (tab._addrInput && e && e.url) tab._addrInput.value = e.url;
+    if (tab._backBtn) tab._backBtn.disabled = !wv.canGoBack();
+    if (tab._fwdBtn) tab._fwdBtn.disabled = !wv.canGoForward();
   };
   wv.addEventListener('did-navigate', sync);
   wv.addEventListener('did-navigate-in-page', sync);
@@ -1056,6 +1077,22 @@ function handleShortcut(input) {
       if (document.body.classList.contains('claude-collapsed')) toggleClaude(true);
       $('#claudePrompt').focus();
       return true;
+    case '[': {
+      const tab = findTab(state.activeTabId);
+      if (tab && tab.webview && tab.webview.canGoBack()) {
+        tab.webview.goBack();
+        return true;
+      }
+      return false;
+    }
+    case ']': {
+      const tab = findTab(state.activeTabId);
+      if (tab && tab.webview && tab.webview.canGoForward()) {
+        tab.webview.goForward();
+        return true;
+      }
+      return false;
+    }
     default:
       if (/^[1-9]$/.test(k)) {
         const idx = Number(k) - 1;

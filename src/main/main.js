@@ -178,7 +178,7 @@ function isAppShortcut(input) {
   const k = (input.key || '').toLowerCase();
   if (input.control && input.key === 'Tab') return true; // ⌃Tab / ⌃⇧Tab
   if ((input.meta || input.control) && !input.alt && !input.shift) {
-    if (['w', 'f', 'l', 'r', 'k', 's', 'p'].includes(k)) return true;
+    if (['w', 'f', 'l', 'r', 'k', 's', 'p', '[', ']'].includes(k)) return true;
     if (/^[1-9]$/.test(k)) return true;
   }
   return false;

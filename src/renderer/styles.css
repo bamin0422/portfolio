@@ -595,6 +595,12 @@ body.sidebar-collapsed .sidebar {
 .spacer {
   flex: 1;
 }
+.nav-btn {
+  font-size: 15px;
+  line-height: 1;
+  padding: 2px 8px;
+  min-width: 26px;
+}
 .addr-input {
   flex: 1;
   min-width: 80px;
