@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/images/logo-200.png" width="120" alt="Portfolio logo" />
+<img src="docs/images/logo.png" width="110" alt="Portfolio logo" />
 
 # Portfolio
 
@@ -16,9 +16,28 @@
 
 <br />
 
-<img src="docs/images/screenshot.png" width="880" alt="Portfolio screenshot" />
+<img src="docs/images/demo.gif" width="880" alt="Portfolio demo" />
 
 </div>
+
+---
+
+## 📥 다운로드
+
+[**최신 릴리스**](https://github.com/bamin0422/portfolio/releases/latest)에서 받으세요:
+
+| 플랫폼 | 파일 |
+|---|---|
+| 🍎 macOS (Apple Silicon) | `Portfolio-0.1.0-arm64.dmg` |
+| 🍎 macOS (Intel) | `Portfolio-0.1.0.dmg` |
+| 🪟 Windows | `Portfolio Setup 0.1.0.exe` |
+
+```bash
+# Homebrew (macOS)
+brew install --cask bamin0422/tap/portfolio
+```
+
+> AI 기능을 쓰려면 [Claude CLI](https://claude.com/claude-code)가 설치돼 있어야 합니다.
 
 ---
 
