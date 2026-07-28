@@ -19,6 +19,7 @@
   "build": {
     "appId": "dev.portfolio.app",
     "productName": "Portfolio",
+    "afterSign": "build/adhoc-sign.js",
     "asar": true,
     "asarUnpack": [
       "src/mcp/**"

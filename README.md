@@ -39,6 +39,10 @@ brew install --cask bamin0422/tap/portfolio
 
 > AI 기능을 쓰려면 [Claude CLI](https://claude.com/claude-code)가 설치돼 있어야 합니다.
 
+> **macOS 첫 실행**: 서명·공증되지 않은 앱이라 처음엔 Gatekeeper가 막을 수 있습니다.
+> **우클릭 → 열기**로 실행하거나, 터미널에서 `xattr -cr /Applications/Portfolio.app` 후 실행하세요.
+> (Homebrew로 설치하면 자동으로 처리됩니다.)
+
 ---
 
 ## 왜 Portfolio인가
