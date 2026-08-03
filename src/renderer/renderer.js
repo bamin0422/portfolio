@@ -1399,6 +1399,29 @@ function bind() {
   api.onClaudeEvent(onClaudeEvent);
 }
 
+// =====================================================================
+//  새 버전 알림
+// =====================================================================
+// 자동 설치는 하지 않는다 (ad-hoc 서명이라 macOS에서 적용되지 않고, 런타임 의존성도 늘린다).
+// 새 버전이 있다는 사실만 알리고 내려받기는 사용자가 누른다.
+function showUpdate(info) {
+  if (!info || !info.available) return;
+  const btn = $('#updateBtn');
+  if (!btn) return;
+  $('#updateVer').textContent = `v${info.version}`;
+  btn.hidden = false;
+  btn.title = info.hasAsset
+    ? `${info.version} 내려받기 (현재 ${info.current})`
+    : `${info.version} 릴리스 페이지 열기 — 이 플랫폼용 파일은 아직 올라오지 않았습니다`;
+  btn.onclick = () => api.openExternal(info.url);
+}
+
+function setupUpdates() {
+  if (api.onUpdateAvailable) api.onUpdateAvailable(showUpdate);
+  // 창을 새로 그린 경우 main이 이미 확인을 마쳤을 수 있으므로 마지막 결과도 읽어둔다.
+  if (api.lastUpdate) api.lastUpdate().then(showUpdate).catch(() => {});
+}
+
 // ---- 자동 새로고침 ----
 let autoTimer = null;
 function setupAutoRefresh() {
@@ -1430,6 +1453,7 @@ bind();
 setupResizers();
 renderTabbar(); // 초기 상태: 탭 없으면 탭바 숨김 + welcome 표시
 setupAutoRefresh();
+setupUpdates();
 refreshPorts();
 renderProcs();
 })();

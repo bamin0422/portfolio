@@ -179,6 +179,20 @@ button.stat:hover {
   border-color: var(--accent);
   color: #b7ecd3;
 }
+/* 새 버전 알림 — 평소엔 숨어 있다가 업데이트가 있을 때만 나타난다 */
+.btn-update {
+  background: #173a2b;
+  border-color: var(--accent);
+  color: #b7ecd3;
+  font-weight: 600;
+}
+.btn-update:hover {
+  background: #1d4a36;
+}
+.btn-update span {
+  font-family: var(--mono);
+  opacity: 0.9;
+}
 
 /* ---- 레이아웃 ---- */
 .layout {

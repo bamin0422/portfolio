@@ -1,0 +1,57 @@
+name: Release
+
+# 태그를 밀면 mac/Windows 설치본을 만들어 해당 릴리스에 붙인다.
+# 이미 발행된 릴리스에 빠진 플랫폼만 채우고 싶을 때는 workflow_dispatch로 태그를 지정해 돌린다.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '빌드해서 첨부할 태그 (예: v0.1.1)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Windows 설치본 빌드
+        run: npm run dist -- --win
+      - name: 릴리스에 첨부
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          gh release upload "$TAG" dist/*.exe --clobber
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: macOS 설치본 빌드 (arm64 + x64)
+        run: npm run dist:mac
+      - name: 릴리스에 첨부
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          gh release upload "$TAG" dist/*.dmg --clobber

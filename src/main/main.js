@@ -6,6 +6,7 @@ const { scanPorts, probePorts } = require('./portScanner');
 const processManager = require('./processManager');
 const claudeRunner = require('./claudeRunner');
 const webviewControl = require('./webviewControl');
+const updater = require('./updater');
 
 app.setName('Portfolio');
 
@@ -52,6 +53,11 @@ processManager.onStatus = (id, status, code) => {
 // claude 실행 이벤트를 renderer로 흘려보낸다.
 claudeRunner.onEvent = (runId, event) => {
   if (mainWindow) mainWindow.webContents.send('claude:event', { runId, event });
+};
+
+// 새 버전이 확인되면 renderer에 알린다.
+updater.onUpdate = (info) => {
+  if (mainWindow) mainWindow.webContents.send('update:available', info);
 };
 
 // ---- IPC 핸들러 ----
@@ -118,6 +124,11 @@ ipcMain.handle('webview:unregister', (_e, { port }) => {
   webviewControl.unregister(port);
   return { ok: true };
 });
+
+// 새 버전 확인 (수동). 자동 확인은 updater가 주기적으로 돈다.
+ipcMain.handle('update:check', () => updater.check({ silent: false }));
+ipcMain.handle('update:last', () => updater.getLast());
+ipcMain.handle('app:version', () => app.getVersion());
 
 ipcMain.handle('dialog:pickDir', async () => {
   const res = await dialog.showOpenDialog(mainWindow, {
@@ -242,6 +253,7 @@ app.whenReady().then(async () => {
   buildMenu();
   await webviewControl.startServer(); // 내부 화면 제어용 로컬 서버 준비
   createWindow();
+  updater.start(); // 새 버전 주기 확인
 });
 
 app.on('activate', () => {

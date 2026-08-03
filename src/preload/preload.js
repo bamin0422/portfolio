@@ -27,6 +27,12 @@ contextBridge.exposeInMainWorld('api', {
   cancelClaude: (runId) => ipcRenderer.invoke('claude:cancel', { runId }),
   onClaudeEvent: (cb) => sub('claude:event', cb),
 
+  // 새 버전
+  checkUpdate: () => ipcRenderer.invoke('update:check'),
+  lastUpdate: () => ipcRenderer.invoke('update:last'),
+  appVersion: () => ipcRenderer.invoke('app:version'),
+  onUpdateAvailable: (cb) => sub('update:available', cb),
+
   // 기타
   pickDir: () => ipcRenderer.invoke('dialog:pickDir'),
   openUrl: (url, devtools = false) => ipcRenderer.invoke('window:openUrl', { url, devtools }),
