@@ -26,8 +26,10 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      # electron-builder는 CI에서 태그를 만나면 스스로 GitHub에 publish하려 든다.
+      # 업로드는 아래 gh 스텝이 --clobber로 처리하므로 여기서는 빌드만 한다.
       - name: Windows 설치본 빌드
-        run: npm run dist -- --win
+        run: npm run dist -- --win --publish never
       - name: 릴리스에 첨부
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -48,7 +50,7 @@ jobs:
           cache: npm
       - run: npm ci
       - name: macOS 설치본 빌드 (arm64 + x64)
-        run: npm run dist:mac
+        run: npm run dist:mac -- --publish never
       - name: 릴리스에 첨부
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
