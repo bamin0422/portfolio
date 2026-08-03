@@ -75,6 +75,72 @@ const el = (tag, cls) => {
 const aliasFor = (port) => state.aliases[port] || null;
 
 // =====================================================================
+//  텍스트 싱크 (로그 / Claude 출력)
+// =====================================================================
+// pre.textContent += chunk 는 붙일 때마다 전체 문자열을 읽어 새로 쓰기 때문에
+// 누적량에 대해 O(n²)이다. 실측: 4MB가 쌓인 뒤에는 같은 양을 붙이는 데 초반의 10배가
+// 걸렸다 — 앱을 오래 켜둘수록 UI가 굳어가던 직접 원인이다.
+//
+// 대신 (1) 한 프레임에 한 번만 TextNode를 append하고 (기존 내용은 건드리지 않으므로 O(1))
+//      (2) 총량 상한을 둬 오래된 앞부분을 버린다.
+const SINK_MAX_CHARS = 400000; // 이 이상 쌓이면 앞에서 버린다
+const SINK_TRIM_TO = 300000; // 버릴 때 여기까지 줄인다
+
+function makeTextSink(pre) {
+  let pending = '';
+  let scheduled = false;
+  let total = 0;
+
+  // 사용자가 위로 올려 읽는 중이면 자동 스크롤로 방해하지 않는다.
+  const atBottom = () => pre.scrollHeight - pre.scrollTop - pre.clientHeight < 40;
+
+  const flush = () => {
+    scheduled = false;
+    if (!pending) return;
+    const stick = atBottom();
+    const text = pending;
+    pending = '';
+
+    pre.appendChild(document.createTextNode(text));
+    total += text.length;
+
+    if (total > SINK_MAX_CHARS) {
+      // 앞쪽 노드부터 버린다. 마지막 노드는 남겨 화면이 비지 않게 한다.
+      while (total > SINK_TRIM_TO && pre.childNodes.length > 1) {
+        total -= pre.firstChild.textContent.length;
+        pre.removeChild(pre.firstChild);
+      }
+    }
+    if (stick) pre.scrollTop = pre.scrollHeight;
+  };
+
+  const sink = {
+    append(text) {
+      if (!text) return;
+      pending += text;
+      // 창이 가려져 있으면 rAF가 멈춘다. 그 사이 pending이 무한히 자라지 않게 잘라둔다.
+      if (pending.length > SINK_MAX_CHARS) {
+        pending = pending.slice(pending.length - SINK_TRIM_TO);
+      }
+      if (!scheduled) {
+        scheduled = true;
+        requestAnimationFrame(flush);
+      }
+    },
+    set(text) {
+      pending = '';
+      total = 0;
+      pre.textContent = '';
+      sink.append(text || '');
+    },
+    scrollToEnd() {
+      pre.scrollTop = pre.scrollHeight;
+    },
+  };
+  return sink;
+}
+
+// =====================================================================
 //  포트 스캔 & 사이드바
 // =====================================================================
 function pulseScan() {
@@ -84,11 +150,27 @@ function pulseScan() {
   setTimeout(() => d.classList.remove('pulse'), 600);
 }
 
-async function refreshPorts() {
+// 스캔이 아직 안 끝났는데 다음 주기가 오면 건너뛴다.
+// (겹치면 lsof 프로세스와 프로브 소켓이 중복으로 뜬다)
+let scanInFlight = false;
+
+async function refreshPorts(force = false) {
+  if (scanInFlight) return;
+  scanInFlight = true;
   try {
-    state.ports = await api.scanPorts();
+    state.ports = await api.scanPorts(force);
   } catch {
     state.ports = [];
+  } finally {
+    scanInFlight = false;
+  }
+  // 이미 죽은 프로세스는 선택 목록에서 지운다 (오래 켜두면 죽은 PID가 쌓인다).
+  if (state.killSet.size) {
+    const alive = new Set(state.ports.map((p) => p.pid));
+    for (const pid of [...state.killSet]) {
+      if (!alive.has(pid)) state.killSet.delete(pid);
+    }
+    updateKillSelected();
   }
   pulseScan();
   renderPorts();
@@ -163,12 +245,32 @@ function commitPortOrder() {
   renderPorts();
 }
 
-function renderPorts() {
+// 리스트 결과물을 좌우하는 상태만 뽑아낸 지문. 이게 그대로면 DOM도 그대로다.
+function portsRenderSig() {
+  return JSON.stringify([
+    state.ports.map((p) => [p.port, p.pid, p.command, p.web ? 1 : 0]),
+    state.search,
+    state.typeFilter,
+    [...state.pinned],
+    state.portOrder,
+    state.activeTabId,
+    state.aliases,
+    [...state.killSet],
+  ]);
+}
+
+function renderPorts(force = false) {
   // 이름 변경 input이 열려있으면 리스트를 다시 그리지 않는다 (input 유실 방지).
   if (state.renaming) {
     updateStats();
     return;
   }
+  // 3초마다 도는 자동 스캔은 대개 결과가 같다. 같으면 DOM을 아예 건드리지 않는다.
+  // (전량 재생성은 항목 24개 기준 2.7ms + 노드·클로저 대량 폐기로 GC를 자극한다)
+  const sig = portsRenderSig();
+  if (!force && sig === state.portsSig) return;
+  state.portsSig = sig;
+
   updateStats();
   const filtered = state.ports.filter(matchesSearch);
   const detectedPorts = new Set(state.ports.map((p) => p.port));
@@ -398,7 +500,7 @@ function startRename(li, main, p) {
     }
     input.remove();
     main.style.display = prevDisplay;
-    renderPorts();
+    renderPorts(true); // 별칭이 그대로여도 input을 걷어낸 리스트로 되돌린다
   };
 
   input.onclick = (e) => e.stopPropagation();
@@ -648,6 +750,7 @@ function buildTabContent(tab, data) {
   logs.appendChild(pre);
   tab.panels.logs = logs;
   tab._logPre = pre;
+  tab._logSink = makeTextSink(pre);
   panels.appendChild(logs);
 
   const info = el('div', 'tab-panel');
@@ -679,10 +782,11 @@ function fillTabData(tab, data) {
       ['주소', (p.addresses || []).join(', ')],
       ['웹 응답', p.web ? `예 (HTTP ${p.httpStatus || '?'})` : '아니오'],
     ]);
-    tab._logPre.textContent =
+    tab._logSink.set(
       `이 포트(:${p.port}, PID ${p.pid})는 앱 외부에서 실행된 프로세스입니다.\n` +
-      `macOS에서는 외부 프로세스의 실시간 로그(stdout)를 가로챌 수 없습니다.\n\n` +
-      `실시간 로그를 보려면 "앱에서 실행한 서버 → + 서버 실행"으로 띄워주세요.`;
+        `macOS에서는 외부 프로세스의 실시간 로그(stdout)를 가로챌 수 없습니다.\n\n` +
+        `실시간 로그를 보려면 "앱에서 실행한 서버 → + 서버 실행"으로 띄워주세요.`
+    );
   } else {
     const proc = data || procData(tab.ref);
     if (proc) {
@@ -694,8 +798,7 @@ function fillTabData(tab, data) {
         ['상태', proc.status],
       ]);
       api.getProcLogs(tab.ref).then((t) => {
-        tab._logPre.textContent = t || '(로그 없음)';
-        if (tab.subTab === 'logs') tab._logPre.scrollTop = tab._logPre.scrollHeight;
+        tab._logSink.set(t || '(로그 없음)');
       });
     }
   }
@@ -720,6 +823,9 @@ function ensureWebview(tab) {
   const wv = document.createElement('webview');
   const startUrl = tab._addrInput ? tab._addrInput.value : `http://localhost:${tab.ref}/`;
   wv.setAttribute('src', startUrl);
+  // 미리보기 안에서 window.open()·target="_blank"가 실제 창으로 뜨게 한다.
+  // (이 속성이 없으면 main의 setWindowOpenHandler까지 도달하지 못하고 조용히 무시된다)
+  wv.setAttribute('allowpopups', '');
   tab._webviewSlot.appendChild(wv);
   tab.webview = wv;
   // 웹뷰가 이동하면 주소창 동기화 + 뒤로/앞으로 버튼 활성 상태 갱신
@@ -761,7 +867,7 @@ function setSubTab(tab, key, silent) {
     panel.hidden = k !== key;
   }
   if (key === 'preview') ensureWebview(tab);
-  if (key === 'logs' && !silent) tab._logPre.scrollTop = tab._logPre.scrollHeight;
+  if (key === 'logs' && !silent) tab._logSink.scrollToEnd();
 }
 
 function renderTabbar() {
@@ -860,6 +966,12 @@ function closeTab(id) {
     try {
       tab.webview.remove();
     } catch {}
+    // main의 포트↔webContentsId 레지스트리에서도 빼준다 (없으면 죽은 id가 계속 남는다).
+    if (tab.kind === 'port') {
+      try {
+        api.unregisterWebview(tab.ref);
+      } catch {}
+    }
   }
   tab.el.remove();
 
@@ -880,10 +992,14 @@ function closeTab(id) {
 // =====================================================================
 //  Claude
 // =====================================================================
+let claudeSink = null;
+function getClaudeSink() {
+  if (!claudeSink) claudeSink = makeTextSink($('#claudeOutput'));
+  return claudeSink;
+}
+
 function appendClaude(text) {
-  const out = $('#claudeOutput');
-  out.textContent += text;
-  out.scrollTop = out.scrollHeight;
+  getClaudeSink().append(text);
 }
 
 async function runClaude() {
@@ -916,16 +1032,23 @@ async function runClaude() {
   const skipPerm = $('#claudeSkipPerm').checked;
   const controlInternal = $('#claudeControl').checked;
 
-  // 내부 화면 제어 시, portfolio-webview MCP 도구 사용을 안내
+  // 내부 화면 제어 시, portfolio-webview MCP 도구 사용을 안내.
+  // 이 토글은 기본 ON이므로 대상 포트가 없는 상태(웰컴 화면 등)에서도 매번 안내가 붙는다.
+  // 그때 포트 자리에 자리표시자를 박아넣으면 엉뚱한 인자로 도구를 호출하게 되므로 분기한다.
   if (controlInternal) {
-    const port = t ? t.port : '(대상 포트)';
-    finalPrompt =
-      `[내부 화면 제어 모드]\n` +
-      `portfolio-webview MCP 도구로 앱 안의 미리보기 화면을 직접 조작할 수 있습니다.\n` +
-      `대상 포트: ${port}. 먼저 portfolio_snapshot(port:${port})로 화면의 클릭 가능한 요소를\n` +
-      `확인한 뒤, portfolio_click(port:${port}, text:"...")로 클릭하거나 portfolio_type으로 입력하세요.\n` +
-      `필요하면 portfolio_eval로 임의 JS를 실행할 수 있습니다.\n\n` +
-      finalPrompt;
+    finalPrompt = t
+      ? `[내부 화면 제어 모드]\n` +
+        `portfolio-webview MCP 도구로 앱 안의 미리보기 화면을 직접 조작할 수 있습니다.\n` +
+        `대상 포트: ${t.port}. 먼저 portfolio_snapshot(port:${t.port})로 화면의 클릭 가능한 요소를\n` +
+        `확인한 뒤, portfolio_click(port:${t.port}, text:"...")로 클릭하거나 portfolio_type으로 입력하세요.\n` +
+        `필요하면 portfolio_eval로 임의 JS를 실행할 수 있습니다.\n\n` +
+        finalPrompt
+      : `[내부 화면 제어 모드]\n` +
+        `앱 안의 미리보기 화면이 필요하면 portfolio-webview MCP 도구를 쓸 수 있습니다.\n` +
+        `다만 지금은 대상 포트가 정해지지 않았습니다 — 화면 조작이 필요하면 먼저\n` +
+        `portfolio_list로 열려 있는 미리보기 포트를 확인하세요.\n` +
+        `화면 조작이 필요 없는 요청이면 이 도구는 무시해도 됩니다.\n\n` +
+        finalPrompt;
   }
 
   const { runId } = await api.runClaude(finalPrompt, state.claudeCwd, skipPerm, controlInternal);
@@ -1178,7 +1301,8 @@ function applyUiPrefs() {
 //  바인딩
 // =====================================================================
 function bind() {
-  $('#refreshBtn').onclick = refreshPorts;
+  // 수동 새로고침은 프로브 캐시를 무시하고 웹 여부까지 다시 확인한다.
+  $('#refreshBtn').onclick = () => refreshPorts(true);
   $('#killSelectedBtn').onclick = killSelected;
   $('#addProcBtn').onclick = openProcModal;
 
@@ -1217,7 +1341,7 @@ function bind() {
   // Claude
   $('#claudeRunBtn').onclick = runClaude;
   $('#claudeCancelBtn').onclick = cancelClaude;
-  $('#claudeClearBtn').onclick = () => ($('#claudeOutput').textContent = '');
+  $('#claudeClearBtn').onclick = () => getClaudeSink().set('');
   $('#claudePrompt').addEventListener('keydown', (e) => {
     if (e.key !== 'Enter') return;
     if (e.metaKey || e.ctrlKey || e.shiftKey) {
@@ -1263,12 +1387,8 @@ function bind() {
   // 실시간 구독
   api.onProcLog(({ id, chunk }) => {
     const tab = findTab(`proc:${id}`);
-    if (tab) {
-      tab._logPre.textContent += chunk;
-      if (tab.id === state.activeTabId && tab.subTab === 'logs') {
-        tab._logPre.scrollTop = tab._logPre.scrollHeight;
-      }
-    }
+    // 싱크가 프레임당 한 번만 DOM에 반영하고, 맨 아래에 있을 때만 따라 내려간다.
+    if (tab) tab._logSink.append(chunk);
   });
   api.onProcStatus(({ id, status }) => {
     const proc = procData(id);
@@ -1283,11 +1403,24 @@ function bind() {
 let autoTimer = null;
 function setupAutoRefresh() {
   const cb = $('#autoRefresh');
+
+  // 안 보이는 화면 때문에 lsof와 소켓을 계속 쓸 이유는 없다. 다만 그 판단은 매 tick에서 하고,
+  // 타이머 자체는 토글이 켜져 있는 동안 항상 살려둔다.
+  // (타이머 설치 여부를 가시성으로 결정하면, 창 최초 표시 때 visibilitychange가 오지 않는 경우
+  //  스캔이 영구히 멈춘다 — 초기 스캔이 한 번 실패하면 복구할 길이 없어진다.)
+  const tick = () => {
+    if (document.visibilityState === 'visible') refreshPorts();
+  };
+
   const apply = () => {
     if (autoTimer) clearInterval(autoTimer);
-    if (cb.checked) autoTimer = setInterval(refreshPorts, 3000);
+    autoTimer = cb.checked ? setInterval(tick, 3000) : null;
   };
+
   cb.onchange = apply;
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') refreshPorts(); // 돌아오면 즉시 한 번
+  });
   apply();
 }
 

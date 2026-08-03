@@ -71,10 +71,23 @@ function extractPort(nameField) {
 }
 
 // 포트에 HTTP GET을 찔러 응답이 오면 web으로 판별한다.
+// timeout은 "응답 없이 소켓이 조용한 시간"이라, TCP는 열려있지만 HTTP가 아닌 포트
+// (DNS 53, DB 등)는 이 시간을 그대로 소모한다. 스캔 사이클을 지배하는 지점이므로
+// 짧게 잡고, 대신 아래 캐시로 재프로브 자체를 없앤다.
+const PROBE_TIMEOUT = 800;
+
 function probeHttp(port) {
   return new Promise((resolve) => {
     const req = http.get(
-      { host: '127.0.0.1', port, path: '/', timeout: 1200 },
+      {
+        host: '127.0.0.1',
+        port,
+        path: '/',
+        timeout: PROBE_TIMEOUT,
+        // 판별에 본문은 필요 없다. 커넥션을 재사용하지 않게 해 소켓이 TIME_WAIT로
+        // 쌓이는 것도 줄인다.
+        headers: { connection: 'close' },
+      },
       (res) => {
         const ct = res.headers['content-type'] || '';
         const isHtml = /html/i.test(ct);
@@ -90,11 +103,56 @@ function probeHttp(port) {
   });
 }
 
-// 여러 포트를 동시에 프로브
-async function probePorts(ports) {
-  const results = await Promise.all(ports.map((p) => probeHttp(p)));
+// 프로브 결과 캐시. 키는 port+pid — 같은 프로세스가 계속 리스닝 중이면 웹 여부는
+// 변하지 않으므로 다시 찌르지 않는다.
+//
+// 캐시가 없으면 3초마다 전 포트에 GET / 이 날아가는데, 그 대가가 두 가지다.
+//   1) 비HTTP 포트가 매번 타임아웃을 꽉 채워 스캔 사이클 전체를 지배한다.
+//   2) 미리보기로 띄워둔 dev 서버가 3초마다 루트 요청을 받아 SSR/컴파일을 다시 돈다.
+//      (미리보기 화면이 느려지는 직접 원인)
+const probeCache = new Map(); // "port:pid" -> { web, html, status }
+
+const cacheKey = (port, pid) => `${port}:${pid}`;
+
+// entries: [{ port, pid }] — force면 캐시를 무시하고 전부 다시 프로브한다(수동 새로고침).
+async function probePorts(entries, { force = false } = {}) {
+  const list = entries.map((e) =>
+    typeof e === 'number' ? { port: e, pid: 0 } : { port: e.port, pid: e.pid }
+  );
+
+  // 이번 스캔에서 사라진 포트는 캐시에서 지운다 (장시간 구동 시 무한 증가 방지).
+  const alive = new Set(list.map((e) => cacheKey(e.port, e.pid)));
+  for (const key of probeCache.keys()) {
+    if (!alive.has(key)) probeCache.delete(key);
+  }
+
   const map = {};
-  for (const r of results) map[r.port] = r;
+  const todo = [];
+  for (const e of list) {
+    const key = cacheKey(e.port, e.pid);
+    const hit = !force && probeCache.get(key);
+    if (hit) map[e.port] = hit;
+    else todo.push(e);
+  }
+
+  // 어떤 포트가 응답도 오류도 타임아웃도 주지 않고 매달리면 스캔 전체가 끝나지 않는다.
+  // renderer는 스캔이 끝날 때까지 다음 주기를 건너뛰므로, 그 경우 자동 스캔이 영구히 멈춘다.
+  // 소켓 타임아웃과 별개로 각 프로브에 확실한 상한을 둔다.
+  const results = await Promise.all(
+    todo.map((e) =>
+      Promise.race([
+        probeHttp(e.port),
+        new Promise((resolve) =>
+          setTimeout(() => resolve({ port: e.port, web: false }), PROBE_TIMEOUT + 400)
+        ),
+      ])
+    )
+  );
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i];
+    probeCache.set(cacheKey(todo[i].port, todo[i].pid), r);
+    map[r.port] = r;
+  }
   return map;
 }
 

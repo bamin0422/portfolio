@@ -56,9 +56,13 @@ claudeRunner.onEvent = (runId, event) => {
 
 // ---- IPC 핸들러 ----
 
-ipcMain.handle('ports:scan', async () => {
+ipcMain.handle('ports:scan', async (_e, opts) => {
   const ports = await scanPorts();
-  const probes = await probePorts(ports.map((p) => p.port));
+  // 자동 스캔은 캐시를 쓰고(대개 프로브 0회), 수동 새로고침만 전부 다시 찌른다.
+  const probes = await probePorts(
+    ports.map((p) => ({ port: p.port, pid: p.pid })),
+    { force: !!(opts && opts.force) }
+  );
   return ports.map((p) => ({
     ...p,
     web: probes[p.port]?.web || false,
@@ -184,7 +188,39 @@ function isAppShortcut(input) {
   return false;
 }
 
+// window.open(..., 'width=500,height=600') 의 크기 지정을 존중한다.
+function popupBounds(features) {
+  const num = (key) => {
+    const m = new RegExp(`(?:^|,)\\s*${key}\\s*=\\s*(\\d+)`).exec(features || '');
+    return m ? parseInt(m[1], 10) : null;
+  };
+  return {
+    width: num('width') || 1000,
+    height: num('height') || 800,
+    ...(num('left') !== null ? { x: num('left') } : {}),
+    ...(num('top') !== null ? { y: num('top') } : {}),
+  };
+}
+
 app.on('web-contents-created', (_e, contents) => {
+  // 미리보기 화면(그리고 거기서 파생된 팝업 창)에서 window.open·target="_blank"가
+  // 실제 창으로 뜨게 한다. webview 쪽은 allowpopups 속성이 함께 있어야 여기까지 온다.
+  contents.setWindowOpenHandler(({ url, features }) => {
+    // 앱 셸 자신은 팝업을 쓰지 않는다 — 혹시 열리면 기본 브라우저로 넘긴다.
+    if (mainWindow && contents === mainWindow.webContents) {
+      if (url && url !== 'about:blank') shell.openExternal(url);
+      return { action: 'deny' };
+    }
+    return {
+      action: 'allow',
+      overrideBrowserWindowOptions: {
+        ...popupBounds(features),
+        backgroundColor: '#ffffff',
+        webPreferences: { contextIsolation: true, nodeIntegration: false },
+      },
+    };
+  });
+
   if (contents.getType() !== 'webview') return;
   contents.on('before-input-event', (event, input) => {
     if (input.type !== 'keyDown') return;

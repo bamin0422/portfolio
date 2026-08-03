@@ -5,7 +5,8 @@ const { contextBridge, ipcRenderer } = require('electron');
 // renderer에는 IPC를 감싼 안전한 API만 노출한다.
 contextBridge.exposeInMainWorld('api', {
   // 포트
-  scanPorts: () => ipcRenderer.invoke('ports:scan'),
+  // force=true면 웹 여부 프로브 캐시를 무시하고 전부 다시 확인한다 (수동 새로고침).
+  scanPorts: (force = false) => ipcRenderer.invoke('ports:scan', { force }),
   killPort: (pid, force = false) => ipcRenderer.invoke('ports:kill', { pid, force }),
 
   // 관리 프로세스(앱이 직접 실행 → 로그 캡처)
