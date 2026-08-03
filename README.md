@@ -28,9 +28,9 @@
 
 | 플랫폼 | 파일 |
 |---|---|
-| 🍎 macOS (Apple Silicon) | `Portfolio-0.1.0-arm64.dmg` |
-| 🍎 macOS (Intel) | `Portfolio-0.1.0.dmg` |
-| 🪟 Windows | `Portfolio Setup 0.1.0.exe` |
+| 🍎 macOS (Apple Silicon) | `Portfolio-0.1.1-arm64.dmg` |
+| 🍎 macOS (Intel) | `Portfolio-0.1.1.dmg` |
+| 🪟 Windows | `Portfolio Setup 0.1.1.exe` |
 
 ```bash
 # Homebrew (macOS)
