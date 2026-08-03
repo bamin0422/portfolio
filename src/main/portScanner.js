@@ -74,7 +74,10 @@ function extractPort(nameField) {
 // timeout은 "응답 없이 소켓이 조용한 시간"이라, TCP는 열려있지만 HTTP가 아닌 포트
 // (DNS 53, DB 등)는 이 시간을 그대로 소모한다. 스캔 사이클을 지배하는 지점이므로
 // 짧게 잡고, 대신 아래 캐시로 재프로브 자체를 없앤다.
-const PROBE_TIMEOUT = 800;
+// dev 서버는 첫 요청에서 SSR·컴파일을 하느라 수백 ms를 쓰는 일이 흔하므로 너무 짧으면
+// 멀쩡한 웹 서버를 srv로 오판한다. 그렇다고 길게 잡으면 응답 없는 포트가 스캔 사이클을
+// 잡아먹는다. 못 잡은 서버는 아래 재시도(retryDelay)가 곧 다시 확인하므로 중간값으로 둔다.
+const PROBE_TIMEOUT = 1500;
 
 function probeHttp(port) {
   return new Promise((resolve) => {
@@ -110,9 +113,19 @@ function probeHttp(port) {
 //   1) 비HTTP 포트가 매번 타임아웃을 꽉 채워 스캔 사이클 전체를 지배한다.
 //   2) 미리보기로 띄워둔 dev 서버가 3초마다 루트 요청을 받아 SSR/컴파일을 다시 돈다.
 //      (미리보기 화면이 느려지는 직접 원인)
-const probeCache = new Map(); // "port:pid" -> { web, html, status }
+const probeCache = new Map(); // "port:pid" -> { result, at, misses }
 
 const cacheKey = (port, pid) => `${port}:${pid}`;
+
+// "웹이 맞다"는 결과는 프로세스가 살아있는 한 뒤집히지 않으니 그대로 믿는다.
+// 하지만 "웹이 아니다"는 영구히 믿으면 안 된다 — 기동 중이라 아직 응답하지 못하는
+// dev 서버가 그 순간 스캔되면 영원히 srv로 굳어버린다(실제로 그렇게 됐다).
+// 그래서 실패는 다시 확인하되, 계속 실패하는 포트(DNS·DB 등)는 점점 뜸하게 본다.
+function retryDelay(misses) {
+  if (misses <= 1) return 10 * 1000;
+  if (misses === 2) return 30 * 1000;
+  return 5 * 60 * 1000;
+}
 
 // entries: [{ port, pid }] — force면 캐시를 무시하고 전부 다시 프로브한다(수동 새로고침).
 async function probePorts(entries, { force = false } = {}) {
@@ -128,9 +141,14 @@ async function probePorts(entries, { force = false } = {}) {
 
   const map = {};
   const todo = [];
+  const now = Date.now();
   for (const e of list) {
-    const key = cacheKey(e.port, e.pid);
-    const hit = !force && probeCache.get(key);
+    const entry = force ? null : probeCache.get(cacheKey(e.port, e.pid));
+    let hit = null;
+    if (entry) {
+      if (entry.result.web) hit = entry.result;
+      else if (now - entry.at < retryDelay(entry.misses)) hit = entry.result;
+    }
     if (hit) map[e.port] = hit;
     else todo.push(e);
   }
@@ -150,7 +168,13 @@ async function probePorts(entries, { force = false } = {}) {
   );
   for (let i = 0; i < results.length; i++) {
     const r = results[i];
-    probeCache.set(cacheKey(todo[i].port, todo[i].pid), r);
+    const key = cacheKey(todo[i].port, todo[i].pid);
+    const prev = probeCache.get(key);
+    probeCache.set(key, {
+      result: r,
+      at: Date.now(),
+      misses: r.web ? 0 : (prev ? prev.misses : 0) + 1,
+    });
     map[r.port] = r;
   }
   return map;
