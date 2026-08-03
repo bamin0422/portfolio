@@ -15,7 +15,27 @@ permissions:
   contents: write
 
 jobs:
+  # 빌드 잡들이 gh release upload 를 하려면 릴리스가 먼저 있어야 한다.
+  # 두 잡이 각자 만들면 경합하므로 여기서 한 번만 준비한다.
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: 릴리스가 없으면 생성
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "릴리스 $TAG 가 이미 있습니다."
+          else
+            gh release create "$TAG" --title "Portfolio ${TAG#v}" --generate-notes
+          fi
+
   windows:
+    needs: prepare
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -39,6 +59,7 @@ jobs:
           gh release upload "$TAG" dist/*.exe --clobber
 
   macos:
+    needs: prepare
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
