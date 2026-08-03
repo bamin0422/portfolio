@@ -30,7 +30,7 @@
 |---|---|
 | 🍎 macOS (Apple Silicon) | `Portfolio-0.1.1-arm64.dmg` |
 | 🍎 macOS (Intel) | `Portfolio-0.1.1.dmg` |
-| 🪟 Windows | `Portfolio Setup 0.1.1.exe` |
+| 🪟 Windows | `Portfolio Setup 0.1.0.exe` — Windows는 0.1.0이 최신입니다 |
 
 ```bash
 # Homebrew (macOS)
