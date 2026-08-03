@@ -1,7 +1,7 @@
 {
   "name": "portfolio",
   "productName": "Portfolio",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "로컬 포트 관리 + 서버 로그 + 프론트 미리보기 + Claude 명령 Electron 앱 (port + folio)",
   "main": "src/main/main.js",
   "author": "민대인",

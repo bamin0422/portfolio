@@ -28,9 +28,9 @@
 
 | 플랫폼 | 파일 |
 |---|---|
-| 🍎 macOS (Apple Silicon) | `Portfolio-0.1.1-arm64.dmg` |
-| 🍎 macOS (Intel) | `Portfolio-0.1.1.dmg` |
-| 🪟 Windows | `Portfolio Setup 0.1.0.exe` — Windows는 0.1.0이 최신입니다 |
+| 🍎 macOS (Apple Silicon) | `Portfolio-0.1.2-arm64.dmg` |
+| 🍎 macOS (Intel) | `Portfolio-0.1.2.dmg` |
+| 🪟 Windows | `Portfolio Setup 0.1.2.exe` |
 
 ```bash
 # Homebrew (macOS)
