@@ -49,11 +49,22 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      - name: macOS 설치본 빌드 (arm64 + x64)
-        run: npm run dist:mac -- --publish never
+      # arm64와 x64를 한 번에 빌드하면 두 dmg가 같은 볼륨 이름(Portfolio <버전>)으로
+      # 동시에 마운트되어 ln -s /Applications 와 hdiutil detach 가 서로를 밟는다.
+      # 아키텍처를 나눠 순차로 만든다.
+      - name: macOS 설치본 빌드 (arm64)
+        run: npm run dist:mac -- --arm64 --publish never
+      - name: macOS 설치본 빌드 (x64)
+        run: npm run dist:mac -- --x64 --publish never
       - name: 릴리스에 첨부
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ github.event.inputs.tag || github.ref_name }}"
-          gh release upload "$TAG" dist/*.dmg --clobber
+          shopt -s nullglob
+          files=(dist/*.dmg)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "dmg가 만들어지지 않았습니다." >&2
+            exit 1
+          fi
+          gh release upload "$TAG" "${files[@]}" --clobber

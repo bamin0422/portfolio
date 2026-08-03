@@ -53,7 +53,7 @@
       ]
     },
     "dmg": {
-      "title": "Portfolio ${version}"
+      "title": "Portfolio ${version} ${arch}"
     },
     "win": {
       "target": [
